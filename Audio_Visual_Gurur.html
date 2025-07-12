@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Görsel-İşitsel Bellek Testi</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 5px;
+            background-color: #f0f0f0;
+            margin: 0;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        .container {
+            max-width: 100%;
+            margin: auto;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        .header {
+            text-align: center;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .corridors {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 8px;
+            align-items: center;
+        }
+        .corridor {
+            width: 95%;
+            height: 24px;
+            background-color: #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 8px;
+            border-radius: 4px;
+            font-size: 10px;
+        }
+        .corridor.filled {
+            background-color: #ff0000;
+            color: white;
+        }
+        .corridor.filled::after {
+            content: '✈️ İstanbul';
+            font-weight: bold;
+        }
+        .corridor.normal {
+            background-color: #e0e0e0;
+            color: black;
+        }
+        .instructions {
+            text-align: center;
+            font-size: 12px;
+            padding: 16px;
+            visibility: hidden;
+        }
+        .response-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0.5px;
+            padding: 8px;
+            max-height: calc(100vh - 100px);
+            overflow: hidden;
+        }
+        .city-item {
+            display: flex;
+            align-items: center;
+            padding: 2px;
+            height: 18px;
+        }
+        .city-item input {
+            margin-right: 4px;
+            width: 9px;
+            height: 9px;
+        }
+        .city-item label {
+            cursor: pointer;
+            font-size: 6.5px;
+            flex-grow: 1;
+        }
+        .city-item label.correct {
+            color: green;
+        }
+        .city-item label.missed {
+            color: blue;
+        }
+        .city-item label.wrong {
+            color: red;
+        }
+        .city-item label:hover {
+            color: blue;
+        }
+        .buttons {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        button {
+            padding: 6px 12px;
+            font-size: 10px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            touch-action: manipulation;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .timer {
+            text-align: center;
+            font-size: 10px;
+            margin-top: 8px;
+            color: #333;
+        }
+        .level-selection {
+            text-align: center;
+            padding: 16px;
+        }
+        @media only screen and (max-width: 828px) {
+            .header {
+                font-size: 12px;
+            }
+            .corridor {
+                width: 98%;
+                height: 22px;
+                font-size: 9px;
+            }
+            .response-grid {
+                grid-template-columns: repeat(5, 1fr);
+                gap: 0.5px;
+            }
+            .city-item {
+                height: 16px;
+            }
+            .city-item label {
+                font-size: 6.5px;
+            }
+            .city-item input {
+                width: 8px;
+                height: 8px;
+            }
+            button {
+                font-size: 9px;
+                padding: 5px 10px;
+            }
+            .timer {
+                font-size: 9px;
+            }
+            .level-selection {
+                font-size: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header" id="header">Görsel-İşitsel Bellek Testi</div>
+        <div id="screen"></div>
+        <div class="buttons" id="buttons"></div>
+        <div class="timer" id="timer"></div>
+    </div>
+
+    <script type="text/python">
+import random
+import js
+from pyodide.ffi import create_proxy
+
+cities = [
+    "Amsterdam", "Ankara", "Ashgabat", "Baghdad", "Bahrain", "Baku", "Bangkok", "Basel", "Batumi",
+    "Beirut", "Belgrade", "Berlin", "Bilbao", "Bishkek", "Bologna", "Bombay", "Boston", "Bremen",
+    "Budapest", "Dallas", "Delhi", "Doha", "Dubai", "Dublin", "Hamburg", "Havana", "Houston",
+    "Kathmandu", "Kiev", "Lagos", "Lisbon", "London", "Lyon", "Madrid", "Malaga", "Malta",
+    "Manchester", "Melbourne", "Miami", "Milan", "Montreal", "Moscow", "Munich", "Paris", "Phuket",
+    "Porto", "Prague", "Riyadh", "Rotterdam", "Salzburg", "Santiago", "Shanghai", "Singapore",
+    "Stockholm", "Stuttgart", "Sydney", "Tashkent", "Tokyo", "Toronto", "Tunis", "Valencia",
+    "Venice", "Vienna", "Zagreb", "Zurich"
+]
+
+class MemoryTest:
+    def __init__(self):
+        self.cities = cities
+        self.max_sequences = 10
+        self.current_sequence = 0
+        self.filled_corridors = []
+        self.instructions = []
+        self.correct_cities = []
+        self.checkboxes = {}
+        self.last_click_time = 0
+        self.timer_id = None
+        self.level = None
+        self.show_level_selection()
+
+    def show_level_selection(self):
+        screen = js.document.getElementById("screen")
+        screen.innerHTML = ""
+        buttons = js.document.getElementById("buttons")
+        buttons.innerHTML = ""
+        js.document.getElementById("timer").textContent = ""
+
+        selection_div = js.document.createElement("div")
+        selection_div.className = "level-selection"
+        selection_div.textContent = "Seviye Seçin:"
+        screen.appendChild(selection_div)
+
+        for level in ["Kolay", "Orta", "Zor"]:
+            button = js.document.createElement("button")
+            button.textContent = level
+            button.onclick = create_proxy(lambda evt, lvl=level: self.start_level(evt, lvl))
+            buttons.appendChild(button)
+
+        js.document.getElementById("header").textContent = "Görsel-İşitsel Bellek Testi"
+
+    def start_level(self, event, level):
+        if event:
+            event.preventDefault()
+        self.level = level
+        self.current_sequence = 0
+        self.show_start_screen(None)
+
+    def get_sequence_config(self):
+        if self.level == "Kolay":
+            if self.current_sequence < 5:
+                return 3, 2
+            else:
+                return 4, 3
+        elif self.level == "Orta":
+            if self.current_sequence < 5:
+                return 6, 4
+            else:
+                return 7, 5
+        else:
+            if self.current_sequence < 5:
+                return 9, 6
+            else:
+                return 10, 7
+
+    def show_start_screen(self, event):
+        if event:
+            event.preventDefault()
+        self.filled_corridors = random.sample(range(1, 11), 2)
+        self.instructions = []
+        self.correct_cities = []
+        screen = js.document.getElementById("screen")
+        screen.innerHTML = ""
+        buttons = js.document.getElementById("buttons")
+        buttons.innerHTML = ""
+        js.document.getElementById("timer").textContent = ""
+
+        for i in range(10, 0, -1):  # 10'dan 1'e sıralama
+            div = js.document.createElement("div")
+            div.className = "corridor" + (" filled" if i in self.filled_corridors else "")
+            div.textContent = f"Koridor {i}"
+            screen.appendChild(div)
+
+        start_button = js.document.createElement("button")
+        start_button.textContent = "Talimatları Başlat"
+        start_button.onclick = create_proxy(self.start_instructions)
+        buttons.appendChild(start_button)
+
+        js.document.getElementById("header").textContent = f"{self.level} Seviye - Dizi {self.current_sequence + 1}: İstanbul'a Gelen Uçaklar"
+
+    def start_instructions(self, event):
+        event.preventDefault()
+        self.instructions = []
+        self.correct_cities = []
+        total_instructions, correct_count = self.get_sequence_config()
+        available_corridors = [i for i in range(1, 11) if i not in self.filled_corridors]
+        wrong_count = total_instructions - correct_count
+
+        used_cities = set()
+        for _ in range(correct_count):
+            city = random.choice([c for c in self.cities if c not in used_cities])
+            corridor = random.choice(available_corridors)
+            self.instructions.append((city, corridor))
+            self.correct_cities.append(city)
+            used_cities.add(city)
+
+        for _ in range(wrong_count):
+            city = random.choice([c for c in self.cities if c not in used_cities])
+            corridor = random.choice(self.filled_corridors)
+            self.instructions.append((city, corridor))
+            used_cities.add(city)
+
+        random.shuffle(self.instructions)
+        self.current_instruction = 0
+        self.show_instruction()
+
+    def show_instruction(self):
+        if self.current_instruction >= len(self.instructions):
+            self.show_response_screen()
+            return
+
+        city, corridor = self.instructions[self.current_instruction]
+        screen = js.document.getElementById("screen")
+        screen.innerHTML = ""
+        buttons = js.document.getElementById("buttons")
+        buttons.innerHTML = ""
+        js.document.getElementById("timer").textContent = ""
+
+        for i in range(10, 0, -1):  # 10'dan 1'e sıralama
+            div = js.document.createElement("div")
+            div.className = "corridor normal"
+            div.textContent = f"Koridor {i}"
+            screen.appendChild(div)
+
+        instruction_div = js.document.createElement("div")
+        instruction_div.className = "instructions"
+        instruction_div.textContent = f"To {city} on Corridor {corridor}"
+        screen.appendChild(instruction_div)
+
+        self.speak_instruction(city, corridor)
+        self.current_instruction += 1
+        js.setTimeout(create_proxy(self.show_instruction), 3000)
+
+    def show_response_screen(self):
+        screen = js.document.getElementById("screen")
+        screen.innerHTML = ""
+        buttons = js.document.getElementById("buttons")
+        buttons.innerHTML = ""
+        js.document.getElementById("timer").textContent = "Kalan süre: 30 saniye"
+
+        grid = js.document.createElement("div")
+        grid.className = "response-grid"
+        satir = 13
+        grid_matrix = [["" for _ in range(5)] for _ in range(satir)]
+        for idx, city in enumerate(self.cities):
+            row = idx % satir
+            col = idx // satir
+            grid_matrix[row][col] = city
+
+        for row in grid_matrix:
+            for city in row:
+                if city:
+                    div = js.document.createElement("div")
+                    div.className = "city-item"
+                    cb = js.document.createElement("input")
+                    cb.type = "checkbox"
+                    cb.id = f"cb_{city}"
+                    cb.onclick = create_proxy(lambda evt, c=city, cb=cb: self.toggle_checkbox(evt, c, cb))
+                    label = js.document.createElement("label")
+                    label.htmlFor = f"cb_{city}"
+                    label.textContent = city
+                    label.onclick = create_proxy(lambda evt, c=city, cb=cb: self.toggle_checkbox(evt, c, cb))
+                    div.appendChild(cb)
+                    div.appendChild(label)
+                    grid.appendChild(div)
+                    self.checkboxes[city] = cb
+
+        screen.appendChild(grid)
+
+        submit_button = js.document.createElement("button")
+        submit_button.textContent = "Yanıtı Gönder"
+        submit_button.onclick = create_proxy(self.submit_response)
+        buttons.appendChild(submit_button)
+
+        self.remaining_time = 30
+        self.update_timer()
+
+    def toggle_checkbox(self, event, city, checkbox):
+        event.preventDefault()
+        current_time = js.Date.now()
+        if current_time - self.last_click_time < 300:
+            return
+        self.last_click_time = current_time
+        checkbox.checked = not checkbox.checked
+
+    def update_timer(self):
+        if self.remaining_time <= 0:
+            self.submit_response(None)
+            return
+        js.document.getElementById("timer").textContent = f"Kalan süre: {self.remaining_time} saniye"
+        self.remaining_time -= 1
+        self.timer_id = js.setTimeout(create_proxy(self.update_timer), 1000)
+
+    def submit_response(self, event):
+        if event:
+            event.preventDefault()
+        if self.timer_id:
+            js.clearTimeout(self.timer_id)
+            self.timer_id = None
+
+        selected_cities = [city for city, cb in self.checkboxes.items() if cb.checked]
+        is_correct = sorted(selected_cities) == sorted(self.correct_cities)
+
+        screen = js.document.getElementById("screen")
+        screen.innerHTML = ""
+        buttons = js.document.getElementById("buttons")
+        buttons.innerHTML = ""
+        js.document.getElementById("timer").textContent = ""
+
+        grid = js.document.createElement("div")
+        grid.className = "response-grid"
+        satir = 13
+        grid_matrix = [["" for _ in range(5)] for _ in range(satir)]
+        for idx, city in enumerate(self.cities):
+            row = idx % satir
+            col = idx // satir
+            grid_matrix[row][col] = city
+
+        for row in grid_matrix:
+            for city in row:
+                if city:
+                    div = js.document.createElement("div")
+                    div.className = "city-item"
+                    label = js.document.createElement("label")
+                    label.textContent = city
+                    if city in self.correct_cities and city in selected_cities:
+                        label.className = "correct"
+                    elif city in self.correct_cities:
+                        label.className = "missed"
+                    elif city in selected_cities:
+                        label.className = "wrong"
+                    div.appendChild(label)
+                    grid.appendChild(div)
+
+        screen.appendChild(grid)
+
+        result_div = js.document.createElement("div")
+        result_div.className = "instructions"
+        result_div.style.visibility = "visible"
+        result_div.textContent = "Yanıtınız doğru!" if is_correct else f"Yanıtınız yanlış! Doğru şehirler: {', '.join(self.correct_cities)}"
+        screen.appendChild(result_div)
+
+        self.current_sequence += 1
+        if self.current_sequence < self.max_sequences:
+            next_button = js.document.createElement("button")
+            next_button.textContent = "Sonraki Diziye Geç"
+            next_button.onclick = create_proxy(self.show_start_screen)
+            buttons.appendChild(next_button)
+        else:
+            end_div = js.document.createElement("div")
+            end_div.className = "instructions"
+            end_div.style.visibility = "visible"
+            end_div.textContent = "Test tamamlandı!"
+            screen.appendChild(end_div)
+
+        self.checkboxes = {}
+
+    def set_voice(self, event):
+        utterance = self.current_utterance
+        available_voices = js.window.speechSynthesis.getVoices()
+        for voice in available_voices:
+            if voice.lang.startswith('en'):
+                utterance.voice = voice
+                js.console.log(f"Selected voice: {voice.name}, lang: {voice.lang}")
+                break
+        else:
+            js.console.log("No English voice found, using default")
+        utterance.onerror = lambda evt: js.console.log(f"Speech error: {evt.error}")
+        js.window.speechSynthesis.speak(utterance)
+
+    def speak_instruction(self, city, corridor):
+        js.window.speechSynthesis.cancel()
+        utterance = js.SpeechSynthesisUtterance.new(f"To {city} on Corridor {corridor}")
+        utterance.lang = 'en-US'
+        self.current_utterance = utterance
+        if js.window.speechSynthesis.getVoices().length > 0:
+            self.set_voice(None)
+        else:
+            js.window.speechSynthesis.onvoiceschanged = create_proxy(self.set_voice)
+
+app = MemoryTest()
+    </script>
+
+    <script>
+        async function loadPyodideAndRun() {
+            let pyodide = await loadPyodide();
+            await pyodide.runPythonAsync(document.querySelector('script[type="text/python"]').textContent);
+        }
+        loadPyodideAndRun();
+    </script>
+</body>
+</html>
