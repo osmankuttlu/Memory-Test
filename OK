@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Şehir Okuma Uygulaması</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 5px;
+            background-color: #f0f0f0;
+            margin: 0;
+            overflow: hidden;
+        }
+        .container {
+            max-width: 100%;
+            margin: auto;
+            background: white;
+            padding: 5px;
+            border-radius: 8px;
+        }
+        .header {
+            text-align: center;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1px;
+            max-height: 80vh;
+            overflow: hidden;
+            padding: 5px;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        .city-item {
+            display: flex;
+            align-items: center;
+            padding: 1px;
+            height: 24px;
+            white-space: nowrap;
+        }
+        .city-item input {
+            margin-right: 4px;
+            width: 12px;
+            height: 12px;
+        }
+        .city-item label {
+            cursor: pointer;
+            font-size: 9px;
+            flex-grow: 1;
+        }
+        .city-item label:hover {
+            color: blue;
+        }
+        .buttons {
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+            margin-top: 5px;
+        }
+        button {
+            padding: 5px 10px;
+            font-size: 11px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            touch-action: manipulation;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        @media only screen and (max-width: 828px) {
+            .grid {
+                grid-template-columns: repeat(5, 1fr);
+                gap: 0.5px;
+            }
+            .city-item {
+                height: 22px;
+            }
+            .city-item label {
+                font-size: 8px;
+            }
+            .city-item input {
+                width: 10px;
+                height: 10px;
+            }
+            .header {
+                font-size: 12px;
+            }
+            button {
+                font-size: 10px;
+                padding: 4px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header" id="header">Şehir Paneli</div>
+        <div class="grid" id="cityGrid"></div>
+        <div class="div" style='margin: 10px'></div>
+        <div class="buttons">
+            <button id="startButton">Şehirleri Oku</button>
+            <button id="stopButton" disabled>Durdur</button>
+        </div>
+    </div>
+
+    <script type="text/python">
+import random
+import js
+from pyodide.ffi import create_proxy
+
+cities = [
+    "Amsterdam", "Ankara", "Ashgabat", "Baghdad", "Bahrain", "Baku", "Bangkok", "Basel", "Batumi",
+    "Beirut", "Belgrade", "Berlin", "Bilbao", "Bishkek", "Bologna", "Bombay", "Boston", "Bremen",
+    "Budapest", "Dallas", "Delhi", "Doha", "Dubai", "Dublin", "Hamburg", "Havana", "Houston",
+    "Kathmandu", "Kiev", "Lagos", "Lisbon", "London", "Lyon", "Madrid", "Malaga", "Malta",
+    "Manchester", "Melbourne", "Miami", "Milan", "Montreal", "Moscow", "Munich", "Paris", "Phuket",
+    "Porto", "Prague", "Riyadh", "Rotterdam", "Salzburg", "Santiago", "Shanghai", "Singapore",
+    "Stockholm", "Stuttgart", "Sydney", "Tashkent", "Tokyo", "Toronto", "Tunis", "Valencia",
+    "Venice", "Vienna", "Zagreb", "Zurich"
+]
+
+class CityApp:
+    def __init__(self):
+        self.city_list = cities[:]
+        random.shuffle(self.city_list)
+        self.index = 0
+        self.is_running = False
+        self.checkboxes = {}
+        self.last_click_time = 0
+        self.setup_ui()
+
+    def setup_ui(self):
+        grid = js.document.getElementById("cityGrid")
+        satir = 13
+        grid_matrix = [["" for _ in range(5)] for _ in range(satir)]
+        for idx, city in enumerate(cities):
+            row = idx % satir
+            col = idx // satir
+            grid_matrix[row][col] = city
+
+        for row in grid_matrix:
+            for city in row:
+                if city:
+                    div = js.document.createElement("div")
+                    div.className = "city-item"
+                    cb = js.document.createElement("input")
+                    cb.type = "checkbox"
+                    cb.id = f"cb_{city}"
+                    cb.onclick = create_proxy(lambda evt, c=city, cb=cb: self.toggle_checkbox(evt, c, cb))
+                    label = js.document.createElement("label")
+                    label.htmlFor = f"cb_{city}"
+                    label.textContent = city
+                    label.onclick = create_proxy(lambda evt, c=city, cb=cb: self.toggle_checkbox(evt, c, cb))
+                    div.appendChild(cb)
+                    div.appendChild(label)
+                    grid.appendChild(div)
+                    self.checkboxes[city] = cb
+
+        start_button = js.document.getElementById("startButton")
+        stop_button = js.document.getElementById("stopButton")
+        start_button.onclick = create_proxy(self.start_reading)
+        stop_button.onclick = create_proxy(self.stop_reading)
+
+    def toggle_checkbox(self, event, city, checkbox):
+        event.preventDefault()
+        current_time = js.Date.now()
+        if current_time - self.last_click_time < 300:  # Çift tıklamayı engelle
+            return
+        self.last_click_time = current_time
+        checkbox.checked = not checkbox.checked
+
+    def start_reading(self, event):
+        event.preventDefault()
+        if not self.is_running:
+            self.is_running = True
+            js.document.getElementById("startButton").disabled = True
+            js.document.getElementById("stopButton").disabled = False
+            self.read_next_city()
+
+    def stop_reading(self, event):
+        if event:
+            event.preventDefault()
+        self.is_running = False
+        js.document.getElementById("startButton").disabled = False
+        js.document.getElementById("stopButton").disabled = True
+        js.document.getElementById("header").textContent = "Şehir Paneli"
+        js.window.speechSynthesis.cancel()
+
+    def read_next_city(self):
+        if not self.is_running or self.index >= len(self.city_list):
+            self.stop_reading(None)
+            return
+        city = self.city_list[self.index]
+        js.document.getElementById("header").textContent = f"Okunuyor: {city}"
+        self.speak_city(city)
+        self.index += 1
+        js.setTimeout(create_proxy(self.read_next_city), 3000)
+
+    def set_voice(self, event):
+        utterance = self.current_utterance
+        available_voices = js.window.speechSynthesis.getVoices()
+        for voice in available_voices:
+            if voice.lang.startswith('en'):
+                utterance.voice = voice
+                js.console.log(f"Selected voice: {voice.name}, lang: {voice.lang}")
+                break
+        else:
+            js.console.log("No English voice found, using default")
+        utterance.onerror = lambda evt: js.console.log(f"Speech error: {evt.error}")
+        js.window.speechSynthesis.speak(utterance)
+
+    def speak_city(self, city):
+        js.window.speechSynthesis.cancel()
+        utterance = js.SpeechSynthesisUtterance.new(city)
+        utterance.lang = 'en-US'
+        self.current_utterance = utterance  # utterance'ı sınıf değişkeni olarak sakla
+        if js.window.speechSynthesis.getVoices().length > 0:
+            self.set_voice(None)
+        else:
+            js.window.speechSynthesis.onvoiceschanged = create_proxy(self.set_voice)
+
+app = CityApp()
+    </script>
+
+    <script>
+        async function loadPyodideAndRun() {
+            let pyodide = await loadPyodide();
+            await pyodide.runPythonAsync(document.querySelector('script[type="text/python"]').textContent);
+        }
+        loadPyodideAndRun();
+    </script>
+</body>
+</html>
